@@ -1,8 +1,7 @@
-from typing import List
+from typing import List, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from db import db
-from sqlalchemy import Column, String, BigInteger, DateTime, ForeignKey
 from sqlalchemy.orm import Session
 from datetime import datetime
 from middleware import auth, financial
@@ -36,7 +35,7 @@ def add_new_financial(*, req : NewFinancialRequest, payload : dict = Depends(aut
         )
         
     type_id = 0 
-    req_type = req.type[0].upper() + req.type[1:]
+    req_type = req.type[0].upper() + req.type[1:].lower()
     financial_type_data = session.query(FinanCialType).filter(FinanCialType.type == req_type).first()
     if not financial_type_data :
         type_id = 10
@@ -55,7 +54,7 @@ def add_new_financial(*, req : NewFinancialRequest, payload : dict = Depends(aut
         
     insert_data = Financial(
         user_id=username,
-        amount = req.amount,
+        amount = abs(req.amount),
         direction=direction,
         type_id = type_id,
     )
@@ -81,7 +80,58 @@ def my_financial(session : Session = Depends(db.get_db), payload : dict = Depend
     return financials
 
 @financial_router.get("/financial/{financial_id}", response_model=FinancialResponse)
-def get_financial_by_id(session : Session = Depends(db.get_db), payload_and_data = Depends(financial.financial_middleware)):
-    payload, financial_data = payload_and_data
+def get_financial_by_id(session : Session = Depends(db.get_db), payload_and_data : Tuple[dict, Financial] = Depends(financial.financial_middleware)):
+    _, financial_data = payload_and_data
     
     return financial_data
+
+class UpdateFinancialRequest(BaseModel):
+    amount : int = Field(...)
+    type : str = Field(..., min_length=1)
+
+@financial_router.put("/financial/{financial_id}")
+def update_financial(req : UpdateFinancialRequest, session : Session = Depends(db.get_db), payload_and_data : Tuple[dict, Financial] = Depends(financial.financial_middleware)) :
+    _, financial_data = payload_and_data
+    
+    if req.amount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="amount cannot be zero"
+        )
+        
+    type_id = 0
+    req_type = req.type[0].upper() + req.type[1:].lower()
+    financial_type = session.query(FinanCialType).filter(FinanCialType.type == req_type).first()
+    if not financial_type:
+        type_id = 10
+    else :
+        type_id = financial_type.id
+        
+    direction = "in"
+    if req.amount < 0:
+        direction = "out"  
+        
+    abs_amount = abs(req.amount)
+    
+    financial_data.amount = abs_amount
+    financial_data.type_id = type_id
+    financial_data.direction = direction
+    
+    session.commit()
+    session.refresh(financial_data)
+    
+    return {
+        "message" : "Financial updated successfully",
+        "updated_data" : financial_data
+    }
+
+@financial_router.delete("/financial/{financial_id}")
+def delete_financial(session : Session = Depends(db.get_db), payload_and_data : Tuple[dict, Financial] = Depends(financial.financial_middleware)) :
+    _, financial_data = payload_and_data
+    session.delete(financial_data)
+    session.commit()
+    
+    return {
+        "message" : "Financial deleted successfully.",
+        "deleted_data" : financial_data
+    }
