@@ -1,35 +1,20 @@
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
-
-from passlib.context import CryptContext
-
-from sqlalchemy import  Column, String, DateTime, UniqueConstraint
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from models.user import User
 
 from db import db
 
 from util import password_util, jwt_util
 
-from middleware import auth_middleware
+from middleware import auth
 
+user_router = APIRouter(
+    tags=["users"],
+)
 
-
-class User(db.Base):
-    __tablename__ = "users"
-    username = Column(String, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, nullable=False, index=True, unique=True)
-    phone = Column(String(10), nullable=False)
-    password = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
-    __table_args__ = (
-        UniqueConstraint("email"),
-    )
-    
 
 class CreateUserRequest(BaseModel):
     username : str = Field(..., min_length=1)
@@ -47,11 +32,7 @@ class CreateUserResponse(BaseModel) :
     updated_at : datetime
     
 
-router = APIRouter(
-    tags=["users"],
-)
-
-@router.post("/", response_model=CreateUserResponse)
+@user_router.post("/", response_model=CreateUserResponse)
 def create_user(req: CreateUserRequest, session=Depends(db.get_db)):
     hashed_pw = password_util.hash_password(req.password)
     user = User(
@@ -97,7 +78,7 @@ class LoginUserResponse(BaseModel) :
     issued_at : datetime
     expired_at : datetime
     
-@router.post("/login", response_model=LoginUserResponse)
+@user_router.post("/login", response_model=LoginUserResponse)
 def login_user(req : LoginUserRequest, session: Session = Depends(db.get_db)):
     user = session.query(User).filter(User.username == req.username).first()
     if not user:
@@ -134,8 +115,8 @@ class UpdateUserPasswordRequest(BaseModel):
     new_password : str = Field(..., min_length=8)
     confirm_password : str = Field(..., min_length=8)
     
-@router.post("/update-password")
-def update_user_password(*, payload : dict = Depends(auth_middleware.authentication), req : UpdateUserPasswordRequest, session : Session = Depends(db.get_db)) :
+@user_router.post("/update-password")
+def update_user_password(*, payload : dict = Depends(auth.auth_middleware), req : UpdateUserPasswordRequest, session : Session = Depends(db.get_db)) :
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -168,3 +149,4 @@ def update_user_password(*, payload : dict = Depends(auth_middleware.authenticat
     session.commit()
     
     return {"message" : "Password updated successfully"}
+

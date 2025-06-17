@@ -3,7 +3,7 @@ from util import jwt_util
 
 bearer = "bearer"
 
-def authentication(request: Request) :
+def auth_middleware(request: Request) :
     headers = request.headers.get("authorization")
     if not headers:
         raise HTTPException(
